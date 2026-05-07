@@ -227,7 +227,7 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
   inMsg.getAddress(cmd);
 
   // --- Alive handling ---
-  if (strcmp(cmd, "/alive") == 0) {
+  if (strcmp(cmd, "/alive_ack") == 0) {
     RouteEntry *route = findRouteByMac(info->src_addr);
     if (route) {
       route->lastAlive = millis();
@@ -235,12 +235,11 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
     return;
   }
 
-  char fullAddress[128];
-  snprintf(fullAddress, sizeof(fullAddress), "/%s%s", prefix, cmd);
+  
+  OSCMessage outMsg(cmd); 
+  outMsg.add(prefix);
 
 
-
-  OSCMessage outMsg(fullAddress);
   // Copy all arguments from the incoming message
   for (int i = 0; i < inMsg.size(); i++) {
     if (inMsg.isInt(i)) outMsg.add(inMsg.getInt(i));
@@ -298,7 +297,7 @@ void onEthEvent(arduino_event_id_t event) {
       break;
 
     case ARDUINO_EVENT_ETH_GOT_IP:
-      LOGLN("Ethernet reconnected");      
+      LOGLN("Ethernet reconnected");
       break;
 
     default:
@@ -332,7 +331,7 @@ void setup() {
     LOGLN("Ethernet timeout - continuing without link");
   } else {
     LOGLN("Ethernet OK");
-  } 
+  }
 
   WiFi.mode(WIFI_STA);
 
