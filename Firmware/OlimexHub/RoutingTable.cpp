@@ -43,3 +43,20 @@ RouteEntry* findRouteByMac(const uint8_t* mac) {
     }
     return nullptr;
 }
+
+
+bool findRouteSafe(const char *prefix, RouteEntry *&route, int &index)
+{
+    if (!prefix || prefix[0] == '\0') return false;
+
+    for (int i = 0; i < routingTableSize; i++) {
+        if (!routingTable[i].enabled) continue;
+        if (strcmp(routingTable[i].prefix, prefix) == 0) {
+            route = &routingTable[i];
+            index = i;
+            return true;
+        }
+    }
+
+    return false;
+}

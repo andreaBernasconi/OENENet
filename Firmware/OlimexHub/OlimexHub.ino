@@ -1,5 +1,5 @@
 /*
-Title: Olimex Receiver for MAX → ESP-NOW Router
+Title: Olimex HUB
 Board: OLIMEX ESP32-POE
 
 Required Board Settings:
@@ -10,6 +10,9 @@ Required Board Settings:
 
 
 */
+#include "../Common/Logging.h"
+#include "../Common/OscUtils.h"
+#include "../Common/Utils.h"
 #include <ETH.h>
 #include <WiFi.h>
 #include <WiFiGeneric.h>
@@ -21,18 +24,9 @@ Required Board Settings:
 #include "RoutingTable.h"
 #include <Preferences.h>
 
-Preferences prefs;
 
-#define DEBUG 1
-#if DEBUG
-#define LOG(x) \
-  do { Serial.print(x); } while (0)
-#define LOGLN(x) \
-  do { Serial.println(x); } while (0)
-#else
-#define LOG(x)
-#define LOGLN(x)
-#endif
+
+Preferences prefs;
 
 #define ESPNOW_MAX_PAYLOAD 250
 
@@ -69,22 +63,8 @@ bool onlineStatus[10] = { false };
 //bool firstAliveReceived = false;
 
 
-// Class BufferPrinter
-class BufferPrinter : public Print {
-public:
-  uint8_t *buffer;
-  int index;
 
-  BufferPrinter(uint8_t *buf) {
-    buffer = buf;
-    index = 0;
-  }
 
-  virtual size_t write(uint8_t b) {
-    buffer[index++] = b;
-    return 1;
-  }
-};
 
 
 
@@ -191,10 +171,9 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
     if (!routingTable[i].enabled) continue;
     OSCMessage alive("/alive");
     static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
-    BufferPrinter bp(outBuffer);
-    alive.send(bp);
-    int outLen = bp.index;
-    while (outLen % 4 != 0) outBuffer[outLen++] = 0;
+
+    int outLen = oscSerialize(alive, outBuffer, ESPNOW_MAX_PAYLOAD);
+
     sendEspNow(routingTable[i].mac, outBuffer, outLen);
   }
   // Send alive_ack back to MAX
@@ -235,21 +214,14 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
     return;
   }
 
-  
-  OSCMessage outMsg(cmd); 
+
+  OSCMessage outMsg(cmd);
   outMsg.add(prefix);
 
 
   // Copy all arguments from the incoming message
-  for (int i = 0; i < inMsg.size(); i++) {
-    if (inMsg.isInt(i)) outMsg.add(inMsg.getInt(i));
-    else if (inMsg.isFloat(i)) outMsg.add(inMsg.getFloat(i));
-    else if (inMsg.isString(i)) {
-      char s[64];
-      inMsg.getString(i, s, 64);
-      outMsg.add(s);
-    }
-  }
+  oscCopyArgs(inMsg, outMsg);
+
   sendOscToPc(outMsg);
 }
 
@@ -399,54 +371,32 @@ void loop() {
     if (msg.route("/olimex/radio/status/request", handleRadioStatus)) continue;
 
 
-    if (address[0] != '/') {
+    char prefix[32];
+    char command[64];
+
+    if (!parseOscAddress(address, prefix, sizeof(prefix), command, sizeof(command))) {
       LOG("Invalid OSC address: ");
       LOGLN(address);
       continue;
     }
 
-    const char *addr = address + 1;
-    const char *slash = strchr(addr, '/');
-    if (!slash) {
-      LOG("OSC address missing command: ");
-      LOGLN(address);
-      continue;
-    }
 
-    char prefix[32];
-    int prefixLen = slash - addr;
-    strncpy(prefix, addr, prefixLen);
-    prefix[prefixLen] = '\0';
+    RouteEntry *route = nullptr;
+    int routeIndex = -1;
 
-    char command[64];
-    strncpy(command, slash, sizeof(command));
-    command[sizeof(command) - 1] = '\0';
-
-    RouteEntry *route = findRoute(prefix);
-    if (!route) {
+    if (!findRouteSafe(prefix, route, routeIndex)) {
       LOG("Unknown prefix: ");
       LOGLN(prefix);
       continue;
     }
 
-    OSCMessage outMsg(command);
 
-    for (int j = 0; j < msg.size(); j++) {
-      if (msg.isInt(j)) outMsg.add(msg.getInt(j));
-      else if (msg.isFloat(j)) outMsg.add(msg.getFloat(j));
-      else if (msg.isString(j)) {
-        char s[64];
-        msg.getString(j, s, 64);
-        outMsg.add(s);
-      }
-    }
+    OSCMessage outMsg = oscBuildMessage(command, msg);
+
 
     static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
-    BufferPrinter bp(outBuffer);
-    outMsg.send(bp);
-    int outLen = bp.index;
 
-    while (outLen % 4 != 0) outBuffer[outLen++] = 0;
+    int outLen = oscSerialize(outMsg, outBuffer, ESPNOW_MAX_PAYLOAD);
 
     if (outLen > ESPNOW_MAX_PAYLOAD) {
       LOG("OSC message too large: ");
@@ -456,12 +406,14 @@ void loop() {
     }
 
 
-    // ← aggiunta: controlla se la scheda è online
-    if (!onlineStatus[route - routingTable]) {
+
+    if (!onlineStatus[routeIndex]) {
       LOG("Board offline, message discarded: ");
       LOGLN(route->prefix);
       continue;
     }
+
+
     sendEspNow(route->mac, outBuffer, outLen);
   }
 }

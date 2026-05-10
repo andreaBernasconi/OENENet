@@ -16,3 +16,4 @@ extern const int routingTableSize;
 RouteEntry* findRoute(const char* prefix);
 const char* findPrefixByMac(const uint8_t* mac);
 RouteEntry* findRouteByMac(const uint8_t* mac); 
+bool findRouteSafe(const char* prefix, RouteEntry*& route, int& index);
