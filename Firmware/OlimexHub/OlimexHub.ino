@@ -10,9 +10,9 @@ Required Board Settings:
 
 
 */
-#include "../Common/Logging.h"
-#include "../Common/OscUtils.h"
-#include "../Common/Utils.h"
+#include <Logging.h>
+#include <OscUtils.h>
+#include <Utils.h>
 #include <ETH.h>
 #include <WiFi.h>
 #include <WiFiGeneric.h>
