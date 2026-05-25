@@ -14,32 +14,62 @@ public:
 };
 
 bool oscCopyArgs(OSCMessage &src, OSCMessage &dst) {
-    for (int i = 0; i < src.size(); i++) {
-        if (src.isInt(i)) dst.add(src.getInt(i));
-        else if (src.isFloat(i)) dst.add(src.getFloat(i));
-        else if (src.isString(i)) {
-            char s[64];
-            src.getString(i, s, 64);
-            dst.add(s);
+    int count = src.size();  
+
+    for (int i = 0; i < count; i++) {
+        char t = src.getType(i);   
+
+        switch (t) {
+
+            case 'i':   // int32
+                dst.add(src.getInt(i));
+                break;
+
+            case 'f':   // float32
+                dst.add(src.getFloat(i));
+                break;
+
+            case 's': { // string
+                char buf[64];
+                src.getString(i, buf, sizeof(buf));
+                dst.add(buf);
+                break;
+            }
+
+            default:
+                return false;  
         }
-        else return false;
     }
+
     return true;
 }
 
-int oscSerialize(OSCMessage &msg, uint8_t *buffer, int maxLen) {
-    BufferPrinter bp(buffer);
-    msg.send(bp);
-    int len = bp.index;
 
-    while (len % 4 != 0 && len < maxLen)
-        buffer[len++] = 0;
 
-    return len;
-}
+
 
 OSCMessage oscBuildMessage(const char* address, const OSCMessage& src) {
     OSCMessage out(address);
     oscCopyArgs((OSCMessage&)src, out);
     return out;
+}
+
+int buildOscForEspNow(OSCMessage &msg, uint8_t *buffer, int maxLen) {
+
+    // Serialize OSC message into the provided buffer
+    BufferPrinter bp(buffer);
+    msg.send(bp);
+    int len = bp.index;
+
+    // Apply OSC padding to 4-byte boundary
+    while (len % 4 != 0 && len < maxLen) {
+        buffer[len++] = 0;
+    }
+
+    // Safety checks: invalid or oversized payload
+    if (len <= 0) return 0;      // empty or serialization error
+    if (len > maxLen) return 0;  // buffer overflow risk
+
+    
+    return len;
 }

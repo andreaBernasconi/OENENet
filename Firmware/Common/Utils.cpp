@@ -2,7 +2,6 @@
 #include <string.h>
 
 
-
 bool parseOscAddress(const char *address,
                      char *prefix, int prefixSize,
                      char *command, int commandSize)
@@ -24,6 +23,8 @@ bool parseOscAddress(const char *address,
 
     return true;
 }
+
+
 
 
 

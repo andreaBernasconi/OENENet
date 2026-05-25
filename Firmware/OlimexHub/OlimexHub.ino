@@ -29,6 +29,8 @@ Required Board Settings:
 Preferences prefs;
 
 #define ESPNOW_MAX_PAYLOAD 250
+#define MAX_ROUTES 10
+
 
 const unsigned long ALIVE_TIMEOUT_MS = 4000;
 
@@ -58,15 +60,7 @@ struct RadioConfig {
   int txPower;
 } radioConfig;
 
-
-bool onlineStatus[10] = { false };
-//bool firstAliveReceived = false;
-
-
-
-
-
-
+bool onlineStatus[MAX_ROUTES] = { false };
 
 // Load radio configuration from NVS
 void loadConfig() {
@@ -98,7 +92,7 @@ void sendOscToPc(OSCMessage &msg) {
 }
 // sendStatusToMax
 void sendStatusToMax() {
-  for (int i = 0; i < routingTableSize; i++) {
+  for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
     if (!routingTable[i].enabled) continue;
 
     OSCMessage msg("/alive_ack");
@@ -157,23 +151,33 @@ void handleStatusRequest(OSCMessage &msg, int addrOffset) {
 // Send raw ESP‑NOW packet
 bool sendEspNow(const uint8_t *mac, const uint8_t *data, size_t len) {
   esp_err_t result = esp_now_send(mac, data, len);
-  if (result == ESP_OK) return true;
-  return false;
+
+  if (result != ESP_OK) {
+    LOG("ESP-NOW send error: ");
+    LOGLN(result);
+    return false;
+  }
+
+  return true;
 }
+
 
 // Handle incoming /olimex/alive messages from MAX.
 void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
 
   int aliveNumber = msg.getInt(0);
+  static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
 
   // Forward /alive to all enabled boards
   for (int i = 0; i < routingTableSize; i++) {
     if (!routingTable[i].enabled) continue;
+
     OSCMessage alive("/alive");
-    static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
 
-    int outLen = oscSerialize(alive, outBuffer, ESPNOW_MAX_PAYLOAD);
-
+    int outLen = buildOscForEspNow(alive, outBuffer, ESPNOW_MAX_PAYLOAD);
+    if (outLen == 0) {
+      continue;  // invalid or oversized payload
+    }
     sendEspNow(routingTable[i].mac, outBuffer, outLen);
   }
   // Send alive_ack back to MAX
@@ -185,6 +189,10 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
 // ESP-NOW receive callback
 void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 
+  if (len <= 0 || len > ESPNOW_MAX_PAYLOAD) {
+    LOGLN("ESP-NOW packet size invalid, discarded");
+    return;
+  }
   static uint8_t temp[ESPNOW_MAX_PAYLOAD];
   memcpy(temp, data, len);
 
@@ -233,7 +241,7 @@ void checkAliveTimeout() {
   if (now - lastAliveCheck < 1000) return;
   lastAliveCheck = now;
 
-  for (int i = 0; i < routingTableSize; i++) {
+  for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
     if (!routingTable[i].enabled) continue;
 
     bool online = routingTable[i].lastAlive > 0 && (now - routingTable[i].lastAlive) < ALIVE_TIMEOUT_MS;
@@ -346,30 +354,46 @@ void loop() {
   int packetSize = Udp.parsePacket();
   if (packetSize <= 0) return;
 
-  uint8_t buffer[512];
-  int len = Udp.read(buffer, sizeof(buffer));
+  if (packetSize > 512) {
+    LOGLN("UDP packet too large, discarded");
 
-  OSCBundle bundle;
-  bundle.fill(buffer, len);
+    OSCMessage err("/olimex/error");
+    err.add("udp_packet_too_large");
+    err.add(packetSize);
+    sendOscToPc(err);
 
-  if (bundle.hasError()) {
-    LOGLN("Errore OSC in ingresso");
+    while (Udp.available()) Udp.read();
     return;
   }
 
-  for (int i = 0; i < bundle.size(); i++) {
+  static uint8_t buffer[512];
+  int len = Udp.read(buffer, sizeof(buffer));
+
+  OSCBundle bundle;
+
+  bundle.fill(buffer, len);
+  if (bundle.hasError()) {
+    LOGLN("Errore OSC in ingresso");
+
+    OSCMessage err("/olimex/error");
+    err.add("osc_parse_error");
+    sendOscToPc(err);
+
+    return;
+  }
+
+  int count = bundle.size();
+  for (int i = 0; i < count; i++) {
     OSCMessage msg = bundle.getOSCMessage(i);
 
-    char address[256];
+    char address[128];
     msg.getAddress(address);
-
 
     if (msg.route("/olimex/radio/channel", handleChannel)) continue;
     if (msg.route("/olimex/radio/power", handlePower)) continue;
     if (msg.route("/olimex/status/request", handleStatusRequest)) continue;
     if (msg.route("/olimex/alive", handleOlimexAlive)) continue;
     if (msg.route("/olimex/radio/status/request", handleRadioStatus)) continue;
-
 
     char prefix[32];
     char command[64];
@@ -379,8 +403,6 @@ void loop() {
       LOGLN(address);
       continue;
     }
-
-
     RouteEntry *route = nullptr;
     int routeIndex = -1;
 
@@ -389,31 +411,26 @@ void loop() {
       LOGLN(prefix);
       continue;
     }
-
-
     OSCMessage outMsg = oscBuildMessage(command, msg);
 
-
     static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
+    int outLen = buildOscForEspNow(outMsg, outBuffer, ESPNOW_MAX_PAYLOAD);
 
-    int outLen = oscSerialize(outMsg, outBuffer, ESPNOW_MAX_PAYLOAD);
-
-    if (outLen > ESPNOW_MAX_PAYLOAD) {
-      LOG("OSC message too large: ");
-      LOG(outLen);
-      LOGLN(" - send cancelled");
+    if (outLen == 0) {
+      LOG("Invalid or oversized OSC payload, send cancelled");
+      LOGLN("");
       continue;
     }
-
-
-
+    if (routeIndex < 0 || routeIndex >= MAX_ROUTES) {
+      LOG("Route index out of range, message discarded");
+      LOGLN("");
+      continue;
+    }
     if (!onlineStatus[routeIndex]) {
       LOG("Board offline, message discarded: ");
       LOGLN(route->prefix);
       continue;
     }
-
-
     sendEspNow(route->mac, outBuffer, outLen);
   }
 }
