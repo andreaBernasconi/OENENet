@@ -7,9 +7,13 @@ Board: ESP32Dev Module
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <OSCMessage.h>
-
 #include <Logging.h>
 #include <OscUtils.h>
+#include <RadioConfig.h>
+
+RadioConfig radioConfig;
+
+bool emergencyWindow = false;
 
 #define ESPNOW_MAX_PAYLOAD 250
 
@@ -23,7 +27,6 @@ void sendOscThruEspNow(OSCMessage &msg) {
     LOGLN("buildOscForEspNow failed");
     return;
   }
-
   esp_now_send(lastSenderMac, buffer, len);
 }
 
@@ -37,15 +40,22 @@ void handleAlive(OSCMessage &msg) {
 
 void handleChannel(OSCMessage &msg) {
   int newChannel = msg.getInt(0);
-  esp_wifi_set_channel(newChannel, WIFI_SECOND_CHAN_NONE);
-  LOG("Radio channel -> ");
+  radioConfig.channel = newChannel;
+  saveRadioConfig(radioConfig);
+
+  if (emergencyWindow) return;
+
+  applyRadioConfig(radioConfig);
+  LOG("Radio channel → ");
   LOGLN(newChannel);
 }
 
 void handlePower(OSCMessage &msg) {
   int newPower = msg.getInt(0);
-  esp_wifi_set_max_tx_power(newPower);
-  LOG("Radio txPower -> ");
+  radioConfig.txPower = newPower;
+  saveRadioConfig(radioConfig);
+  applyRadioConfig(radioConfig);
+  LOG("Radio txPower → ");
   LOGLN(newPower);
 }
 
@@ -85,9 +95,12 @@ void setup() {
   Serial.begin(115200);
   delay(300);
 
+  loadRadioConfig(radioConfig);
+
   WiFi.mode(WIFI_STA);
 
-  // Initial channel (can be overridden via /channel)
+  emergencyWindow = true;
+
   esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
 
   if (esp_now_init() != ESP_OK) {
@@ -97,7 +110,27 @@ void setup() {
 
   esp_now_register_recv_cb(onDataRecv);
 
-  LOGLN("Core ESP32 ready");
+  OSCMessage msg("/emergency");
+  msg.add(1);  // 1 = emergency window active
+  sendOscThruEspNow(msg);
+
+  // 5‑second emergency window
+  unsigned long start = millis();
+  while (millis() - start < 5000) {
+    delay(10);
+  }
+
+  emergencyWindow = false;
+
+  OSCMessage msg2("/emergency");
+  msg2.add(0);  // 0 = emergency window finished
+  sendOscThruEspNow(msg2);
+
+  applyRadioConfig(radioConfig);
 }
+
+
+
+
 void loop() {
 }

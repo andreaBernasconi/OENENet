@@ -22,15 +22,13 @@ Required Board Settings:
 #include <OSCMessage.h>
 #include <OSCBundle.h>
 #include "RoutingTable.h"
-#include <Preferences.h>
 
+#include <RadioConfig.h>
 
-
-Preferences prefs;
+RadioConfig radioConfig;
 
 #define ESPNOW_MAX_PAYLOAD 250
 #define MAX_ROUTES 10
-
 
 const unsigned long ALIVE_TIMEOUT_MS = 4000;
 
@@ -54,35 +52,9 @@ const int LOCAL_OSC_PORT = 8888;
 IPAddress PcIP(192, 168, 1, 5);
 int PcPort = 8888;
 
-// Radio Configuration
-struct RadioConfig {
-  int channel;
-  int txPower;
-} radioConfig;
+
 
 bool onlineStatus[MAX_ROUTES] = { false };
-
-// Load radio configuration from NVS
-void loadConfig() {
-  prefs.begin("radio", false);
-  radioConfig.channel = prefs.getInt("channel", 6);
-  radioConfig.txPower = prefs.getInt("txPower", 78);
-  prefs.end();
-}
-
-// Save radio configuration to NVS
-void saveConfig() {
-  prefs.begin("radio", false);
-  prefs.putInt("channel", radioConfig.channel);
-  prefs.putInt("txPower", radioConfig.txPower);
-  prefs.end();
-}
-
-// Apply the current radio configuration to Wi‑Fi hardware.
-void applyConfig() {
-  esp_wifi_set_channel(radioConfig.channel, WIFI_SECOND_CHAN_NONE);
-  esp_wifi_set_max_tx_power(radioConfig.txPower);
-}
 
 // sendOscToPC
 void sendOscToPc(OSCMessage &msg) {
@@ -101,15 +73,14 @@ void sendStatusToMax() {
 
     sendOscToPc(msg);
   }
-
   LOGLN("Status sent to MAX");
 }
 // Handle /olimex/radio/channel
 void handleChannel(OSCMessage &msg, int addrOffset) {
   int newChannel = msg.getInt(0);
   radioConfig.channel = newChannel;
-  saveConfig();
-  applyConfig();
+  saveRadioConfig(radioConfig);
+  applyRadioConfig(radioConfig);
 
   OSCMessage resp("/olimex/radio/channel");
   resp.add(newChannel);
@@ -123,8 +94,8 @@ void handleChannel(OSCMessage &msg, int addrOffset) {
 void handlePower(OSCMessage &msg, int addrOffset) {
   int newPower = msg.getInt(0);
   radioConfig.txPower = newPower;
-  saveConfig();
-  applyConfig();
+  saveRadioConfig(radioConfig);
+  applyRadioConfig(radioConfig);
 
   OSCMessage resp("/olimex/radio/power");
   resp.add(newPower);
@@ -136,7 +107,6 @@ void handleRadioStatus(OSCMessage &msg, int addrOffset) {
   OSCMessage ch("/olimex/radio/channel");
   ch.add(radioConfig.channel);
   sendOscToPc(ch);
-
   // Send current TX power
   OSCMessage pw("/olimex/radio/power");
   pw.add(radioConfig.txPower);
@@ -293,7 +263,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  loadConfig();
+  loadRadioConfig(radioConfig);
 
   Network.onEvent(onEthEvent);
 
@@ -315,7 +285,7 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
 
-  applyConfig();
+  applyRadioConfig(radioConfig);
 
   if (esp_now_init() != ESP_OK) {
     LOGLN("ESP-NOW initialization error");
