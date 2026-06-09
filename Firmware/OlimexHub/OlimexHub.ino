@@ -1,14 +1,10 @@
 /*
 Title: Olimex HUB
 Board: OLIMEX ESP32-POE
-
-Required Board Settings:
  - Flash Size:        4MB
  - Partition Scheme:  Huge APP (3MB No OTA)   [REQUIRED]
  - CPU Frequency:     240 MHz
  - PSRAM:             Disabled
-
-
 */
 #include <Logging.h>
 #include <OscUtils.h>
@@ -47,12 +43,9 @@ const int LOCAL_OSC_PORT = 8888;
 #define ETH_POWER 12
 #define ETH_CLKMODE ETH_CLOCK_GPIO17_OUT
 
-
 // PC
 IPAddress PcIP(192, 168, 1, 5);
 int PcPort = 8888;
-
-
 
 bool onlineStatus[MAX_ROUTES] = { false };
 
@@ -82,9 +75,11 @@ void handleChannel(OSCMessage &msg, int addrOffset) {
   saveRadioConfig(radioConfig);
   applyRadioConfig(radioConfig);
 
-  OSCMessage resp("/olimex/radio/channel");
+  OSCMessage resp("/radio/channel");
+  resp.add("olimex");
   resp.add(newChannel);
   sendOscToPc(resp);
+
 
   LOG("Channel updated to ");
   LOGLN(newChannel);
@@ -97,18 +92,22 @@ void handlePower(OSCMessage &msg, int addrOffset) {
   saveRadioConfig(radioConfig);
   applyRadioConfig(radioConfig);
 
-  OSCMessage resp("/olimex/radio/power");
+  OSCMessage resp("/radio/power");
+  resp.add("olimex");
   resp.add(newPower);
   sendOscToPc(resp);
 }
-// Handle /olimex/radio/power
+
+// Handle /olimex/radio/status
 void handleRadioStatus(OSCMessage &msg, int addrOffset) {
   // Send current channel
-  OSCMessage ch("/olimex/radio/channel");
+  OSCMessage ch("/radio/channel");
+  ch.add("olimex");
   ch.add(radioConfig.channel);
   sendOscToPc(ch);
   // Send current TX power
-  OSCMessage pw("/olimex/radio/power");
+  OSCMessage pw("/radio/power");
+  pw.add("olimex");
   pw.add(radioConfig.txPower);
   sendOscToPc(pw);
 }
@@ -117,20 +116,6 @@ void handleRadioStatus(OSCMessage &msg, int addrOffset) {
 void handleStatusRequest(OSCMessage &msg, int addrOffset) {
   sendStatusToMax();
 }
-
-// Send raw ESP‑NOW packet
-bool sendEspNow(const uint8_t *mac, const uint8_t *data, size_t len) {
-  esp_err_t result = esp_now_send(mac, data, len);
-
-  if (result != ESP_OK) {
-    LOG("ESP-NOW send error: ");
-    LOGLN(result);
-    return false;
-  }
-
-  return true;
-}
-
 
 // Handle incoming /olimex/alive messages from MAX.
 void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
@@ -148,6 +133,7 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
     if (outLen == 0) {
       continue;  // invalid or oversized payload
     }
+    ensurePeer(routingTable[i].mac, radioConfig.channel);
     sendEspNow(routingTable[i].mac, outBuffer, outLen);
   }
   // Send alive_ack back to MAX
@@ -160,6 +146,12 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
 void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 
   if (len <= 0 || len > ESPNOW_MAX_PAYLOAD) {
+    OSCMessage err("/error");
+    err.add("olimex");
+    err.add("espnow_packet_invalid");
+    err.add(len);
+    sendOscToPc(err);
+
     LOGLN("ESP-NOW packet size invalid, discarded");
     return;
   }
@@ -192,10 +184,8 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
     return;
   }
 
-
   OSCMessage outMsg(cmd);
   outMsg.add(prefix);
-
 
   // Copy all arguments from the incoming message
   oscCopyArgs(inMsg, outMsg);
@@ -254,8 +244,6 @@ void onEthEvent(arduino_event_id_t event) {
       break;
   }
 }
-
-
 
 
 // Setup
@@ -327,10 +315,12 @@ void loop() {
   if (packetSize > 512) {
     LOGLN("UDP packet too large, discarded");
 
-    OSCMessage err("/olimex/error");
+    OSCMessage err("/error");
+    err.add("olimex");
     err.add("udp_packet_too_large");
     err.add(packetSize);
     sendOscToPc(err);
+
 
     while (Udp.available()) Udp.read();
     return;
@@ -345,9 +335,11 @@ void loop() {
   if (bundle.hasError()) {
     LOGLN("Errore OSC in ingresso");
 
-    OSCMessage err("/olimex/error");
+    OSCMessage err("/error");
+    err.add("olimex");
     err.add("osc_parse_error");
     sendOscToPc(err);
+
 
     return;
   }
@@ -363,7 +355,7 @@ void loop() {
     if (msg.route("/olimex/radio/power", handlePower)) continue;
     if (msg.route("/olimex/status/request", handleStatusRequest)) continue;
     if (msg.route("/olimex/alive", handleOlimexAlive)) continue;
-    if (msg.route("/olimex/radio/status/request", handleRadioStatus)) continue;
+    if (msg.route("/olimex/radio/status", handleRadioStatus)) continue;
 
     char prefix[32];
     char command[64];
@@ -401,6 +393,7 @@ void loop() {
       LOGLN(route->prefix);
       continue;
     }
+    ensurePeer(route->mac, radioConfig.channel);
     sendEspNow(route->mac, outBuffer, outLen);
   }
 }
