@@ -28,11 +28,11 @@ void setup() {
   delay(300); 
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
-  if (!coreInitEspNow()) {
+  if (!initEspNow()) {
     return;
   }
-  coreEmergencyWindow(STATUS_LED_PIN, 8000); 
-  applyRadioConfig(coreRadioConfig);
+  emergencyWindow(STATUS_LED_PIN, 8000); 
+  applyRadioConfig(radioConfig);
   
 }
 

@@ -63,7 +63,7 @@ void handleTlcLedAll(OSCMessage &msg) {
   tlcLedFadeAll(target, timeMs);
 }
 
-void coreOscRouter(OSCMessage &msg) {
+void oscRouter(OSCMessage &msg) {
   msg.dispatch("/tlcLed", handleTlcLed);
   msg.dispatch("/tlcLedAll", handleTlcLedAll);
 }
@@ -73,22 +73,17 @@ void coreOscRouter(OSCMessage &msg) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
-
-  if (!coreInitEspNow()) {
+  if (!initEspNow()) {
     return;
   }
+  emergencyWindow(STATUS_LED_PIN, 8000);
+  applyRadioConfig(radioConfig);
 
-  coreEmergencyWindow(STATUS_LED_PIN, 8000);
-  applyRadioConfig(coreRadioConfig);
+  setOscCallback(oscRouter);
 
-  coreSetOscCallback(coreOscRouter);
-
-  tlcLedInit(TLC_CLK, TLC_MOSI, TLC_NUM);
-
-  LOGLN("ESP32Tlc ready");
+  tlcLedInit(TLC_CLK, TLC_MOSI, TLC_NUM);  
 }
 
 void loop() {

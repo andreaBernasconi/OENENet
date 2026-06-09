@@ -30,7 +30,7 @@ const unsigned long ALIVE_TIMEOUT_MS = 4000;
 
 WiFiUDP Udp;
 
-//  Ethernet Configuration (ESP32-POE)
+// Ethernet Configuration
 const IPAddress ROUTER_IP(192, 168, 1, 23);
 const IPAddress ROUTER_GATEWAY(192, 168, 1, 254);
 const IPAddress ROUTER_SUBNET(255, 255, 255, 0);
@@ -49,12 +49,21 @@ int PcPort = 8888;
 
 bool onlineStatus[MAX_ROUTES] = { false };
 
+// ESP-NOW diagnostics counters
+volatile uint32_t espnowInvalidPackets = 0;
+volatile uint32_t espnowTruncatedPackets = 0;
+volatile uint32_t espnowUnknownMac = 0;
+
+static uint32_t lastDiag = 0;
+static const uint32_t DIAG_INTERVAL = 10000;
+
 // sendOscToPC
 void sendOscToPc(OSCMessage &msg) {
   Udp.beginPacket(PcIP, PcPort);
   msg.send(Udp);
   Udp.endPacket();
 }
+
 // sendStatusToMax
 void sendStatusToMax() {
   for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
@@ -68,6 +77,7 @@ void sendStatusToMax() {
   }
   LOGLN("Status sent to MAX");
 }
+
 // Handle /olimex/radio/channel
 void handleChannel(OSCMessage &msg, int addrOffset) {
   int newChannel = msg.getInt(0);
@@ -79,7 +89,6 @@ void handleChannel(OSCMessage &msg, int addrOffset) {
   resp.add("olimex");
   resp.add(newChannel);
   sendOscToPc(resp);
-
 
   LOG("Channel updated to ");
   LOGLN(newChannel);
@@ -100,12 +109,11 @@ void handlePower(OSCMessage &msg, int addrOffset) {
 
 // Handle /olimex/radio/status
 void handleRadioStatus(OSCMessage &msg, int addrOffset) {
-  // Send current channel
   OSCMessage ch("/radio/channel");
   ch.add("olimex");
   ch.add(radioConfig.channel);
   sendOscToPc(ch);
-  // Send current TX power
+
   OSCMessage pw("/radio/power");
   pw.add("olimex");
   pw.add(radioConfig.txPower);
@@ -117,44 +125,65 @@ void handleStatusRequest(OSCMessage &msg, int addrOffset) {
   sendStatusToMax();
 }
 
-// Handle incoming /olimex/alive messages from MAX.
+// Handle incoming /olimex/alive
 void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
 
   int aliveNumber = msg.getInt(0);
   static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
 
-  // Forward /alive to all enabled boards
   for (int i = 0; i < routingTableSize; i++) {
     if (!routingTable[i].enabled) continue;
 
     OSCMessage alive("/alive");
 
     int outLen = buildOscForEspNow(alive, outBuffer, ESPNOW_MAX_PAYLOAD);
-    if (outLen == 0) {
-      continue;  // invalid or oversized payload
-    }
+    if (outLen == 0) continue;
+
     ensurePeer(routingTable[i].mac, radioConfig.channel);
     sendEspNow(routingTable[i].mac, outBuffer, outLen);
   }
-  // Send alive_ack back to MAX
+
   OSCMessage reply("/alive_ack");
   reply.add("olimex").add(aliveNumber);
   sendOscToPc(reply);
+}
+
+bool isKnownMac(const uint8_t *mac) {
+  for (int i = 0; i < routingTableSize; i++) {
+    if (!routingTable[i].enabled) continue;
+    if (memcmp(mac, routingTable[i].mac, 6) == 0) return true;
+  }
+  return false;
 }
 
 // ESP-NOW receive callback
 void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
 
   if (len <= 0 || len > ESPNOW_MAX_PAYLOAD) {
+    espnowInvalidPackets++;
+
     OSCMessage err("/error");
-    err.add("olimex");
     err.add("espnow_packet_invalid");
     err.add(len);
     sendOscToPc(err);
 
-    LOGLN("ESP-NOW packet size invalid, discarded");
+    LOGLN("ESP-NOW packet size invalid");
     return;
   }
+
+if (len < 8) {
+  espnowTruncatedPackets++;
+  LOGLN("ESP-NOW packet too short, discarded");
+  return;
+}
+
+
+  if (!isKnownMac(info->src_addr)) {
+    espnowUnknownMac++;
+    LOGLN("ESP-NOW unknown MAC");
+    return;
+  }
+
   static uint8_t temp[ESPNOW_MAX_PAYLOAD];
   memcpy(temp, data, len);
 
@@ -162,38 +191,68 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
   inMsg.fill(temp, len);
 
   if (inMsg.hasError()) {
-    LOGLN("Error decoding OSC message");
+    espnowInvalidPackets++;
+    LOGLN("OSC decode error");
     return;
   }
 
   const char *prefix = findPrefixByMac(info->src_addr);
   if (!prefix) {
-    LOGLN("Unknown MAC: cannot reconstruct OSC address");
+    espnowUnknownMac++;
+    LOGLN("Unknown MAC prefix");
     return;
   }
-  // Extract OSC address from incoming message
+
   char cmd[64];
   inMsg.getAddress(cmd);
 
-  // --- Alive handling ---
   if (strcmp(cmd, "/alive_ack") == 0) {
     RouteEntry *route = findRouteByMac(info->src_addr);
-    if (route) {
-      route->lastAlive = millis();
-    }
+    if (route) route->lastAlive = millis();
     return;
   }
 
   OSCMessage outMsg(cmd);
   outMsg.add(prefix);
-
-  // Copy all arguments from the incoming message
   oscCopyArgs(inMsg, outMsg);
 
   sendOscToPc(outMsg);
 }
 
-// Check alive timeout for all boards
+// Event-driven ESP-NOW error reporting
+void espnowErrorUpdate() {
+  uint32_t now = millis();
+  if (now - lastDiag < DIAG_INTERVAL) return;
+
+  lastDiag = now;
+
+  if (espnowInvalidPackets == 0 && espnowTruncatedPackets == 0 && espnowUnknownMac == 0) return;
+
+  OSCMessage msg("/error");
+
+  if (espnowInvalidPackets > 0) {
+    msg.add("espnow_invalid");
+    msg.add((int)espnowInvalidPackets);
+  }
+
+  if (espnowTruncatedPackets > 0) {
+    msg.add("espnow_truncated");
+    msg.add((int)espnowTruncatedPackets);
+  }
+
+  if (espnowUnknownMac > 0) {
+    msg.add("espnow_unknown_mac");
+    msg.add((int)espnowUnknownMac);
+  }
+
+  sendOscToPc(msg);
+
+  espnowInvalidPackets = 0;
+  espnowTruncatedPackets = 0;
+  espnowUnknownMac = 0;
+}
+
+// Check alive timeout
 void checkAliveTimeout() {
   static unsigned long lastAliveCheck = 0;
   unsigned long now = millis();
@@ -201,7 +260,7 @@ void checkAliveTimeout() {
   if (now - lastAliveCheck < 1000) return;
   lastAliveCheck = now;
 
-  for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
+  for (int i = 0; i < routingTableSize; i++) {
     if (!routingTable[i].enabled) continue;
 
     bool online = routingTable[i].lastAlive > 0 && (now - routingTable[i].lastAlive) < ALIVE_TIMEOUT_MS;
@@ -209,7 +268,6 @@ void checkAliveTimeout() {
     if (online != onlineStatus[i]) {
       onlineStatus[i] = online;
 
-      // Send unified alive ack message
       OSCMessage msg("/alive_ack");
       msg.add(routingTable[i].prefix);
       msg.add(online ? 1 : 0);
@@ -237,14 +295,13 @@ void onEthEvent(arduino_event_id_t event) {
       break;
 
     case ARDUINO_EVENT_ETH_GOT_IP:
-      LOGLN("Ethernet reconnected");
+      LOGLN("Ethernet got IP");
       break;
 
     default:
       break;
   }
 }
-
 
 // Setup
 void setup() {
@@ -265,34 +322,31 @@ void setup() {
     LOGLN(".");
     delay(300);
   }
-  if (!ETH.linkUp()) {
-    LOGLN("Ethernet timeout - continuing without link");
-  } else {
-    LOGLN("Ethernet OK");
-  }
+
+  if (!ETH.linkUp()) LOGLN("Ethernet timeout");
+  else LOGLN("Ethernet OK");
 
   WiFi.mode(WIFI_STA);
 
   applyRadioConfig(radioConfig);
 
   if (esp_now_init() != ESP_OK) {
-    LOGLN("ESP-NOW initialization error");
+    LOGLN("ESP-NOW init error");
     return;
   }
 
-
   esp_now_register_recv_cb(onEspNowRecv);
-
 
   for (int i = 0; i < routingTableSize; i++) {
     if (!routingTable[i].enabled) continue;
+
     esp_now_peer_info_t peer = {};
     memcpy(peer.peer_addr, routingTable[i].mac, 6);
     peer.channel = 0;
     peer.encrypt = false;
 
     if (esp_now_add_peer(&peer) == ESP_OK) {
-      LOG("Peer added:");
+      LOG("Peer added: ");
       LOGLN(routingTable[i].prefix);
     } else {
       LOG("Peer add error: ");
@@ -301,26 +355,22 @@ void setup() {
   }
 
   LOGLN("Router ready");
-
   sendStatusToMax();
-};
+}
 
 // Loop
 void loop() {
   checkAliveTimeout();
+  espnowErrorUpdate();
 
   int packetSize = Udp.parsePacket();
   if (packetSize <= 0) return;
 
   if (packetSize > 512) {
-    LOGLN("UDP packet too large, discarded");
-
     OSCMessage err("/error");
-    err.add("olimex");
     err.add("udp_packet_too_large");
     err.add(packetSize);
     sendOscToPc(err);
-
 
     while (Udp.available()) Udp.read();
     return;
@@ -330,17 +380,12 @@ void loop() {
   int len = Udp.read(buffer, sizeof(buffer));
 
   OSCBundle bundle;
-
   bundle.fill(buffer, len);
-  if (bundle.hasError()) {
-    LOGLN("Errore OSC in ingresso");
 
+  if (bundle.hasError()) {
     OSCMessage err("/error");
-    err.add("olimex");
     err.add("osc_parse_error");
     sendOscToPc(err);
-
-
     return;
   }
 
@@ -365,6 +410,7 @@ void loop() {
       LOGLN(address);
       continue;
     }
+
     RouteEntry *route = nullptr;
     int routeIndex = -1;
 
@@ -373,26 +419,23 @@ void loop() {
       LOGLN(prefix);
       continue;
     }
+
     OSCMessage outMsg = oscBuildMessage(command, msg);
 
     static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
     int outLen = buildOscForEspNow(outMsg, outBuffer, ESPNOW_MAX_PAYLOAD);
 
     if (outLen == 0) {
-      LOG("Invalid or oversized OSC payload, send cancelled");
-      LOGLN("");
+      LOG("Invalid or oversized OSC payload");
       continue;
     }
-    if (routeIndex < 0 || routeIndex >= MAX_ROUTES) {
-      LOG("Route index out of range, message discarded");
-      LOGLN("");
-      continue;
-    }
+
     if (!onlineStatus[routeIndex]) {
-      LOG("Board offline, message discarded: ");
+      LOG("Board offline: ");
       LOGLN(route->prefix);
       continue;
     }
+
     ensurePeer(route->mac, radioConfig.channel);
     sendEspNow(route->mac, outBuffer, outLen);
   }

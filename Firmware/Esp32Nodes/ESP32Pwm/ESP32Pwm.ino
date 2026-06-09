@@ -49,7 +49,7 @@ void handlePwmLedAll(OSCMessage &msg) {
 
 
 // OSC router from esp32core → sketch
-void coreOscRouter(OSCMessage &msg) {
+void oscRouter(OSCMessage &msg) {
   msg.dispatch("/pwmLed", handlePwmLed);
   msg.dispatch("/pwmLedAll", handlePwmLedAll);
 }
@@ -58,13 +58,13 @@ void setup() {
   delay(300); 
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
-  if (!coreInitEspNow()) {
+  if (!initEspNow()) {
     return;
   }
-  coreEmergencyWindow(STATUS_LED_PIN, 8000); 
-  applyRadioConfig(coreRadioConfig);
+  emergencyWindow(STATUS_LED_PIN, 8000); 
+  applyRadioConfig(radioConfig);
 
-  coreSetOscCallback(coreOscRouter);
+  setOscCallback(oscRouter);
   pwmLedInit(pwmPins, pwmCount);
   
 
