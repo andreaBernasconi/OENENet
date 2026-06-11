@@ -53,22 +53,14 @@ void oscRouter(OSCMessage &msg) {
   msg.dispatch("/pwmLed", handlePwmLed);
   msg.dispatch("/pwmLedAll", handlePwmLedAll);
 }
+
+
 void setup() {
-  Serial.begin(115200);
-  delay(300); 
-  WiFi.mode(WIFI_STA);
-  esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
-  if (!initEspNow()) {
-    return;
-  }
-  emergencyWindow(STATUS_LED_PIN, 8000); 
-  applyRadioConfig(radioConfig);
-
-  setOscCallback(oscRouter);
-  pwmLedInit(pwmPins, pwmCount);
-  
-
+    initCommon();
+    setOscCallback(oscRouter);
+    pwmLedInit(pwmPins, pwmCount);
 }
+
 
 void loop() {
     // Update PWM fade engine

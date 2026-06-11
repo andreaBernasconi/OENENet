@@ -9,6 +9,21 @@ RadioConfig radioConfig;
 uint8_t lastSenderMac[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 bool emergencyActive = false;
 
+
+void initCommon() {
+    Serial.begin(115200);
+    delay(300);
+
+    WiFi.mode(WIFI_STA);
+    esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
+
+    if (!initEspNow()) return;
+
+    emergencyWindow(STATUS_LED_PIN, 8000);
+    applyRadioConfig(radioConfig);
+}
+
+
 bool initEspNow() {
     loadRadioConfig(radioConfig);
 

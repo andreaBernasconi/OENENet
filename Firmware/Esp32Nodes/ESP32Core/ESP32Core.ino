@@ -24,17 +24,9 @@ Upload Speed: 921600
 
 
 void setup() {
-  Serial.begin(115200);
-  delay(300); 
-  WiFi.mode(WIFI_STA);
-  esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
-  if (!initEspNow()) {
-    return;
-  }
-  emergencyWindow(STATUS_LED_PIN, 8000); 
-  applyRadioConfig(radioConfig);
-  
+    initCommon();
 }
+
 
 void loop() {
 }

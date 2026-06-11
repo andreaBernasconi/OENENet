@@ -16,6 +16,8 @@ extern RadioConfig radioConfig;
 extern uint8_t lastSenderMac[6];
 extern bool emergencyActive;
 
+void initCommon();
+
 bool initEspNow();
 
 void onDataRecv(const esp_now_recv_info_t *info,
