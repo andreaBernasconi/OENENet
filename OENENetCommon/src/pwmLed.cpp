@@ -5,8 +5,8 @@
 // Internal state (private)
 // -----------------------------------------------------------------------------
 
-static const int* _pins = nullptr;   // Pointer to pin array provided by the sketch
-static int _count = 0;               // Number of PWM channels
+static const int* _pins = nullptr;   
+static int _count = 0;               
 
 static uint16_t gammaTable[4096];    // Gamma correction lookup table
 
@@ -20,6 +20,21 @@ struct PwmFadeState {
 };
 
 static PwmFadeState* fadeState = nullptr;
+
+// -----------------------------------------------------------------------------
+// Error callback
+// -----------------------------------------------------------------------------
+
+static PwmErrorCallback _errorCb = nullptr;
+
+void pwmLedSetErrorCallback(PwmErrorCallback cb) {
+    _errorCb = cb;
+}
+
+static void raiseError(const char* code) {
+    if (_errorCb)
+        _errorCb(code);
+}
 
 // -----------------------------------------------------------------------------
 // Gamma table generation
@@ -100,6 +115,10 @@ void pwmLedFade(int ledIndex, uint16_t targetDuty, uint32_t durationMs) {
     f.startTime = millis();
     f.duration = durationMs;
     f.active = true;
+
+    if (durationMs == 0) {
+        f.active = false;
+    }
 }
 
 void pwmLedUpdate() {
@@ -131,4 +150,54 @@ void pwmLedUpdate() {
         uint16_t currentDuty = (uint16_t)interp;
         ledcWrite(_pins[i], gammaTable[currentDuty]);
     }
+}
+
+// -----------------------------------------------------------------------------
+// OSC HANDLERS
+// -----------------------------------------------------------------------------
+
+static void handlePwmLed(OSCMessage &msg) {
+    if (msg.size() < 3) {
+        raiseError("PWM_INVALID_ARGS");
+        return;
+    }
+
+    int ledIndex = msg.getInt(0) - 1;   // 1‑based → 0‑based
+    uint16_t target = msg.getInt(1);
+    uint32_t timeMs = msg.getInt(2);
+
+    if (ledIndex < 0 || ledIndex >= _count) {
+        raiseError("PWM_INDEX_OUT_OF_RANGE");
+        return;
+    }
+
+    pwmLedFade(ledIndex, target, timeMs);
+}
+
+static void handlePwmLedAll(OSCMessage &msg) {
+    if (msg.size() < 2) {
+        raiseError("PWMALL_INVALID_ARGS");
+        return;
+    }
+
+    if (_count == 0) {
+        raiseError("NO_PWM_DEFINED");
+        return;
+    }
+
+    uint16_t target = msg.getInt(0);
+    uint32_t timeMs = msg.getInt(1);
+
+    for (int i = 0; i < _count; i++) {
+        pwmLedFade(i, target, timeMs);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// OSC ROUTER
+// -----------------------------------------------------------------------------
+
+void pwmOscRouter(OSCMessage &msg) {
+    msg.dispatch("/pwmLed", handlePwmLed);
+    msg.dispatch("/pwmLedAll", handlePwmLedAll);
 }

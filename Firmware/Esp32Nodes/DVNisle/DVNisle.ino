@@ -1,6 +1,6 @@
 /*
-Title: ESP32 CORE 
-Board: OLIMEX ESP32‑S3‑DevKit‑LiPo 
+Title: DVNisle
+Board: OLIMEX ESP32‑S3‑DevKit‑LiPo
 USB CDC On Boot → Enabled
 USB Mode → Hardware CDC and JTAG
 Flash Size → 8MB
@@ -25,81 +25,73 @@ Upload Speed: 921600
 #include "pwmLed.h"
 #include "tlcLed.h"
 
-// --- PWM config ---
+// -----------------------------------------------------------------------------
+// PWM CONFIGURATION
+// -----------------------------------------------------------------------------
+
 int pwmPins[] = {4, 7, 15, 16, 17, 18};
 const int pwmCount = 6;
 
-// --- TLC config ---
-#define TLC_CLK      12
-#define TLC_MOSI     11
-#define TLC_NUM      1
-#define TLC_CHANNELS (TLC_NUM * 12)
+// -----------------------------------------------------------------------------
+// TLC CONFIGURATION
+// -----------------------------------------------------------------------------
 
-void handlePwmLed(OSCMessage &msg) {
-    if (msg.size() < 3) return;
+#define NUM_RGB 8
+#define NUM_LED 0
 
-    int ledIndex = msg.getInt(0) - 1;
-    uint16_t target = msg.getInt(1);
-    uint32_t timeMs = msg.getInt(2);
+#define TLC_CLK 12
+#define TLC_MOSI 11
 
-    pwmLedFade(ledIndex, target, timeMs);
+#define CHANNELS_NEEDED (NUM_RGB * 3 + NUM_LED)
+#define TLC_NUM ((CHANNELS_NEEDED + 11) / 12)
+
+// -----------------------------------------------------------------------------
+// ERROR CALLBACKS
+// -----------------------------------------------------------------------------
+
+void sendPwmOscError(const char* code) {
+    static uint8_t buffer[250];
+    OSCMessage m("/error/pwmLed");
+    m.add(code);
+    sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
 }
 
-void handlePwmLedAll(OSCMessage &msg) {
-    if (msg.size() < 2) return;
-
-    uint16_t target = msg.getInt(0);
-    uint32_t timeMs = msg.getInt(1);
-
-    for (int i = 0; i < pwmCount; i++)
-        pwmLedFade(i, target, timeMs);
+void sendTlcOscError(const char* code) {
+    static uint8_t buffer[250];
+    OSCMessage m("/error/tlc");
+    m.add(code);
+    sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
 }
 
-void handleTlcLed(OSCMessage &msg) {
-    if (msg.size() < 3) return;
+// -----------------------------------------------------------------------------
+// OSC ROUTER 
+// -----------------------------------------------------------------------------
 
-    int ledIndex = msg.getInt(0) - 1;
-    uint16_t target = msg.getInt(1);
-    uint32_t timeMs = msg.getInt(2);
-
-    if (ledIndex < 0 || ledIndex >= TLC_CHANNELS) return;
-    if (target > 4095) target = 4095;
-
-    tlcLedFade(ledIndex, target, timeMs);
-}
-
-void handleTlcLedAll(OSCMessage &msg) {
-    if (msg.size() < 2) return;
-
-    uint16_t target = msg.getInt(0);
-    uint32_t timeMs = msg.getInt(1);
-
-    if (target > 4095) target = 4095;
-
-    tlcLedFadeAll(target, timeMs);
-}
-
-
-
-// --- OSC router ---
 void oscRouter(OSCMessage &msg) {
-  msg.dispatch("/pwmLed",    handlePwmLed);
-  msg.dispatch("/pwmLedAll", handlePwmLedAll);
-  msg.dispatch("/tlcLed",    handleTlcLed);
-  msg.dispatch("/tlcLedAll", handleTlcLedAll);
+    tlcOscRouter(msg);  
+    pwmOscRouter(msg);  
 }
+
+
 
 void setup() {
-  initCommon();
+    initCommon();
 
-  setOscCallback(oscRouter);
+    // PWM engine
+    pwmLedInit(pwmPins, pwmCount);
+    pwmLedSetErrorCallback(sendPwmOscError);
 
-  pwmLedInit(pwmPins, pwmCount);
-  tlcLedInit(TLC_CLK, TLC_MOSI, TLC_NUM);
+    // TLC engine
+    tlcLedConfigure(NUM_RGB, NUM_LED);
+    tlcLedInitMapping();
+    tlcLedInitHardware(TLC_CLK, TLC_MOSI, TLC_NUM);
+    tlcLedSetErrorCallback(sendTlcOscError);
+
+    // Unified OSC router
+    setOscCallback(oscRouter);
 }
 
-
 void loop() {
-  pwmLedUpdate();
-  tlcLedUpdate();
+    pwmLedUpdate();
+    tlcLedUpdate();
 }

@@ -12,6 +12,7 @@ CPU Frequency → 240 MHz
 Upload Speed: 921600
 */
 
+
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
@@ -22,47 +23,46 @@ Upload Speed: 921600
 #include <RadioConfig.h>
 #include <esp32core.h>
 
-#include "pwmLed.h"   
+#include "pwmLed.h"
+
+// -----------------------------------------------------------------------------
+// USER CONFIGURATION
+// -----------------------------------------------------------------------------
+
 int pwmPins[] = {4, 7, 15, 16, 17, 18};
 const int pwmCount = 6;
-// OSC handler for PWM LED control
-void handlePwmLed(OSCMessage &msg) {
-  if (msg.size() < 3)
-    return;
 
-  int ledIndex = msg.getInt(0) - 1;
-  uint16_t target = msg.getInt(1);
-  uint32_t timeMs = msg.getInt(2);
-  pwmLedFade(ledIndex, target, timeMs);
-}
-void handlePwmLedAll(OSCMessage &msg) {
-  if (msg.size() < 2)
-    return;
+// -----------------------------------------------------------------------------
+// ERROR CALLBACK
+// -----------------------------------------------------------------------------
 
-  uint16_t target = msg.getInt(0);
-  uint32_t timeMs = msg.getInt(1);
- 
-  for (int i = 0; i < pwmCount; i++) {
-    pwmLedFade(i, target, timeMs);
-  }
+void sendPwmOscError(const char* code) {
+    static uint8_t buffer[250];
+    OSCMessage m("/error/pwmLed");
+    m.add(code);
+    sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
 }
 
+// -----------------------------------------------------------------------------
+// OSC ROUTER
+// -----------------------------------------------------------------------------
 
-// OSC router from esp32core → sketch
 void oscRouter(OSCMessage &msg) {
-  msg.dispatch("/pwmLed", handlePwmLed);
-  msg.dispatch("/pwmLedAll", handlePwmLedAll);
+    // PWM commands
+    pwmOscRouter(msg);
 }
+
 
 
 void setup() {
     initCommon();
-    setOscCallback(oscRouter);
+
     pwmLedInit(pwmPins, pwmCount);
+    pwmLedSetErrorCallback(sendPwmOscError);
+
+    setOscCallback(oscRouter);
 }
 
-
 void loop() {
-    // Update PWM fade engine
-  pwmLedUpdate();
+    pwmLedUpdate();
 }

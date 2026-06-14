@@ -5,7 +5,7 @@
 // - prefix: short name used in OSC addressing
 // - mac: MAC address of the board
 // - enabled: whether the board should be used by the router
-// - description: human‑readable label
+// - lastAlive: timestamp of the last received /alive message
 
 RouteEntry routingTable[] = {
     {"scheda1", {0x68, 0xB6, 0xB3, 0x27, 0x29, 0xD4}, true, 0},

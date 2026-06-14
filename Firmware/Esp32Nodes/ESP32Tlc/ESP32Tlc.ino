@@ -1,7 +1,6 @@
 /*
-Title: ESP32 Tlc Adafruit TLC59711
+Title: ESP32 TLC59711 Node
 Board: OLIMEX ESP32‑S3‑DevKit‑LiPo 
-
 USB CDC On Boot → Enabled
 USB Mode → Hardware CDC and JTAG
 Flash Size → 8MB
@@ -22,61 +21,48 @@ Upload Speed: 921600
 #include <Utils.h>
 #include <RadioConfig.h>
 #include <esp32core.h>
-#include <math.h>
 
 #include <tlcLed.h>
 
-#define TLC_CLK      12
-#define TLC_MOSI     11
-#define TLC_NUM      1
-#define TLC_CHANNELS (TLC_NUM * 12)
+// -----------------------------------------------------------------------------
+// TLC USER CONFIGURATION
+// -----------------------------------------------------------------------------
 
-// ---------------- OSC HANDLERS ----------------
+#define NUM_RGB 4
+#define NUM_LED 0
 
-void handleTlcLed(OSCMessage &msg) {
-  if (msg.size() < 3)
-    return;
+#define TLC_CLK 12
+#define TLC_MOSI 11
 
-  int      ledIndex = msg.getInt(0) - 1;   // TLC LED numbering starts at 1
-  uint16_t target   = msg.getInt(1);       // 0–4095 (LOGICO)
-  uint32_t timeMs   = msg.getInt(2);       // fade time
+#define CHANNELS_NEEDED (NUM_RGB * 3 + NUM_LED)
+#define TLC_NUM ((CHANNELS_NEEDED + 11) / 12)
 
-  if (ledIndex < 0 || ledIndex >= TLC_CHANNELS)
-    return;
+// -----------------------------------------------------------------------------
+// ERROR CALLBACK
+// -----------------------------------------------------------------------------
 
-  if (target > 4095)
-    target = 4095;
-
-  tlcLedFade(ledIndex, target, timeMs);
-}
-
-void handleTlcLedAll(OSCMessage &msg) {
-  if (msg.size() < 2)
-    return;
-
-  uint16_t target = msg.getInt(0);   // 0–4095
-  uint32_t timeMs = msg.getInt(1);   // fade duration
-
-  if (target > 4095)
-    target = 4095;
-
-  tlcLedFadeAll(target, timeMs);
-}
-
-void oscRouter(OSCMessage &msg) {
-  msg.dispatch("/tlcLed", handleTlcLed);
-  msg.dispatch("/tlcLedAll", handleTlcLedAll);
+void sendTlcOscError(const char* code) {
+    static uint8_t buffer[250];
+    OSCMessage m("/error/tlc");
+    m.add(code);
+    sendOscToEspNow(lastSenderMac, m, buffer, 250);
 }
 
 
 
 void setup() {
     initCommon();
-    setOscCallback(oscRouter);
-    tlcLedInit(TLC_CLK, TLC_MOSI, TLC_NUM);
+
+    tlcLedConfigure(NUM_RGB, NUM_LED);
+    tlcLedInitMapping();
+    tlcLedInitHardware(TLC_CLK, TLC_MOSI, TLC_NUM);
+
+    tlcLedSetErrorCallback(sendTlcOscError);
+
+    setOscCallback(tlcOscRouter);
 }
 
 
 void loop() {
-  tlcLedUpdate();
+    tlcLedUpdate();
 }

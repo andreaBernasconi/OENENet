@@ -1,27 +1,34 @@
 #pragma once
 #include <Arduino.h>
+#include <OSCMessage.h>
 
 // -----------------------------------------------------------------------------
-// tlcLed library
-// TLC59711 LED engine: gamma correction, fade interpolation, 16‑bit output.
+// TLC59711 LED ENGINE — PUBLIC API
 // -----------------------------------------------------------------------------
 
-// Initialize the TLC LED engine
-// clkPin     : TLC59711 CLK pin
-// dataPin    : TLC59711 MOSI/DIN pin
-// numDrivers : number of TLC59711 chips in daisy chain
-void tlcLedInit(int clkPin, int dataPin, int numDrivers);
+// Configure logical LED layout
+void tlcLedConfigure(int numRgb, int numLed);
 
-// Update the fade engine (must be called inside loop())
+// Build channel mapping (RGB first, then single LEDs)
+void tlcLedInitMapping();
+
+// Initialize TLC59711 hardware
+void tlcLedInitHardware(int clkPin, int dataPin, int numDrivers);
+
+// High‑level RGB fade API
+void tlcRgbLedFade(int rgbIndex,
+                   uint16_t r, uint16_t g, uint16_t b,
+                   uint32_t timeMs);
+
+// OSC router for TLC commands
+void tlcOscRouter(OSCMessage &msg);
+
+// Fade engine update (call in loop)
 void tlcLedUpdate();
 
-// Start a fade on a logical channel
-// ch      : channel index 0..(numDrivers*12 - 1)
-// value   : logical brightness 0..4095 (before gamma correction)
-// timeMs  : fade duration in milliseconds
-void tlcLedFade(int ch, uint16_t value, uint32_t timeMs);
+// -----------------------------------------------------------------------------
+// ERROR CALLBACK
+// -----------------------------------------------------------------------------
 
-// Start a fade on all TLC channels simultaneously
-// value   : logical brightness 0..4095 (before gamma correction)
-// timeMs  : fade duration in milliseconds
-void tlcLedFadeAll(uint16_t value, uint32_t timeMs);
+typedef void (*TlcErrorCallback)(const char* code);
+void tlcLedSetErrorCallback(TlcErrorCallback cb);
