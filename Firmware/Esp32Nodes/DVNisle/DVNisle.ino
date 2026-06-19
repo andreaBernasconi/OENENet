@@ -32,64 +32,61 @@ Upload Speed: 921600
 int pwmPins[] = {4, 7, 15, 16, 17, 18};
 const int pwmCount = 6;
 
+#define PWM_NUM_RGB    0
+#define PWM_NUM_SINGLE 6
+
 // -----------------------------------------------------------------------------
 // TLC CONFIGURATION
 // -----------------------------------------------------------------------------
 
-#define NUM_RGB 8
-#define NUM_LED 0
+#define TLC_NUM_RGB 8
+#define TLC_NUM_LED 0
 
 #define TLC_CLK 12
 #define TLC_MOSI 11
-
-#define CHANNELS_NEEDED (NUM_RGB * 3 + NUM_LED)
-#define TLC_NUM ((CHANNELS_NEEDED + 11) / 12)
-
-// -----------------------------------------------------------------------------
-// ERROR CALLBACKS
-// -----------------------------------------------------------------------------
-
-void sendPwmOscError(const char* code) {
-    static uint8_t buffer[250];
-    OSCMessage m("/error/pwmLed");
-    m.add(code);
-    sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
-}
-
-void sendTlcOscError(const char* code) {
-    static uint8_t buffer[250];
-    OSCMessage m("/error/tlc");
-    m.add(code);
-    sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
-}
 
 // -----------------------------------------------------------------------------
 // OSC ROUTER 
 // -----------------------------------------------------------------------------
 
 void oscRouter(OSCMessage &msg) {
-    tlcOscRouter(msg);  
-    pwmOscRouter(msg);  
+    tlcOscRouter(msg);
+    pwmOscRouter(msg);
 }
 
-
+// -----------------------------------------------------------------------------
+// SETUP
+// -----------------------------------------------------------------------------
 
 void setup() {
     initCommon();
 
     // PWM engine
     pwmLedInit(pwmPins, pwmCount);
-    pwmLedSetErrorCallback(sendPwmOscError);
+
+    pwmLedSetErrorCallback([](const char* code){
+        sendOscError("/error/pwmLed", code);
+    });
+
+    pwmLedConfigure(PWM_NUM_RGB, PWM_NUM_SINGLE);
+    pwmLedInitMapping();
 
     // TLC engine
-    tlcLedConfigure(NUM_RGB, NUM_LED);
+    tlcLedConfigure(TLC_NUM_RGB, TLC_NUM_LED);
     tlcLedInitMapping();
-    tlcLedInitHardware(TLC_CLK, TLC_MOSI, TLC_NUM);
-    tlcLedSetErrorCallback(sendTlcOscError);
+    tlcLedInitHardware(TLC_CLK, TLC_MOSI);
+
+    tlcLedSetErrorCallback([](const char* code){
+        sendOscError("/error/tlc", code);
+    });
 
     // Unified OSC router
     setOscCallback(oscRouter);
 }
+
+// -----------------------------------------------------------------------------
+// LOOP
+// -----------------------------------------------------------------------------
 
 void loop() {
     pwmLedUpdate();

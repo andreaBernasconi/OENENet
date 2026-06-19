@@ -1,5 +1,5 @@
 /*
-Title: ESP32 PWM
+Title: ESP32 DVNdspl
 Board: OLIMEX ESP32‑S3‑DevKit‑LiPo 
 USB CDC On Boot → Enabled
 USB Mode → Hardware CDC and JTAG
@@ -28,11 +28,11 @@ Upload Speed: 921600
 // USER CONFIGURATION
 // -----------------------------------------------------------------------------
 
-int pwmPins[] = {4, 7, 15, 16, 17, 18};
-const int pwmCount = 6;
+int pwmPins[] = {4, 7, 15};
+const int pwmCount = 3;
 
 #define PWM_NUM_RGB    1
-#define PWM_NUM_SINGLE 3
+#define PWM_NUM_SINGLE 0
 
 // -----------------------------------------------------------------------------
 // OSC ROUTER

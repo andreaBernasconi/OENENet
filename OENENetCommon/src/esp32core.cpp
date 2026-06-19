@@ -130,3 +130,12 @@ void emergencyWindow(uint8_t ledPin, unsigned long durationMs) {
 void setOscCallback(OscCallback cb) {
     userOscCallback = cb;
 }
+void sendOscError(const char* path, const char* code) {
+    static uint8_t buffer[ESPNOW_MAX_PAYLOAD];
+
+    OSCMessage m(path);
+    m.add(code);
+
+    ensurePeer(lastSenderMac, radioConfig.channel);
+    sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
+}

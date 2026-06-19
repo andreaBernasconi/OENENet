@@ -28,40 +28,40 @@ Upload Speed: 921600
 // TLC USER CONFIGURATION
 // -----------------------------------------------------------------------------
 
-#define NUM_RGB 4
-#define NUM_LED 0
+#define TLC_NUM_RGB 4
+#define TLC_NUM_LED 0
 
 #define TLC_CLK 12
 #define TLC_MOSI 11
 
-#define CHANNELS_NEEDED (NUM_RGB * 3 + NUM_LED)
-#define TLC_NUM ((CHANNELS_NEEDED + 11) / 12)
-
 // -----------------------------------------------------------------------------
-// ERROR CALLBACK
+// SETUP
 // -----------------------------------------------------------------------------
-
-void sendTlcOscError(const char* code) {
-    static uint8_t buffer[250];
-    OSCMessage m("/error/tlc");
-    m.add(code);
-    sendOscToEspNow(lastSenderMac, m, buffer, 250);
-}
-
-
 
 void setup() {
     initCommon();
 
-    tlcLedConfigure(NUM_RGB, NUM_LED);
+    // Configure TLC logical layout
+    tlcLedConfigure(TLC_NUM_RGB, TLC_NUM_LED);
+
+    // Build channel mapping
     tlcLedInitMapping();
-    tlcLedInitHardware(TLC_CLK, TLC_MOSI, TLC_NUM);
 
-    tlcLedSetErrorCallback(sendTlcOscError);
+    // Initialize TLC hardware (driver count auto-calculated)
+    tlcLedInitHardware(TLC_CLK, TLC_MOSI);
 
+    // Error callback using sendOscError()
+    tlcLedSetErrorCallback([](const char* code){
+        sendOscError("/error/tlc", code);
+    });
+
+    // OSC router
     setOscCallback(tlcOscRouter);
 }
 
+// -----------------------------------------------------------------------------
+// LOOP
+// -----------------------------------------------------------------------------
 
 void loop() {
     tlcLedUpdate();

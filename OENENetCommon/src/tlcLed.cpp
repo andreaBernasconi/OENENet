@@ -10,10 +10,14 @@
 
 static int NUM_RGB_LOCAL = 0;
 static int NUM_LED_LOCAL = 0;
+static int NUM_DRIVERS_LOCAL = 0;
 
 void tlcLedConfigure(int numRgb, int numLed) {
     NUM_RGB_LOCAL = numRgb;
     NUM_LED_LOCAL = numLed;
+
+    int channelsNeeded = NUM_RGB_LOCAL * 3 + NUM_LED_LOCAL;
+    NUM_DRIVERS_LOCAL = (channelsNeeded + 11) / 12;
 }
 
 // -----------------------------------------------------------------------------
@@ -119,9 +123,9 @@ static uint16_t computeCurrentLogical(int ch) {
 // HARDWARE INITIALIZATION
 // -----------------------------------------------------------------------------
 
-void tlcLedInitHardware(int clkPin, int dataPin, int numDrivers) {
-    _numDrivers = numDrivers;
-    _channels   = numDrivers * 12;
+void tlcLedInitHardware(int clkPin, int dataPin) {
+    _numDrivers = NUM_DRIVERS_LOCAL;
+    _channels   = _numDrivers * 12;
 
     _tlc = new Adafruit_TLC59711(_numDrivers, clkPin, dataPin);
 
@@ -180,10 +184,6 @@ void tlcRgbLedFade(int rgbIndex,
     if (rgbIndex < 0 || rgbIndex >= NUM_RGB_LOCAL)
         return;
 
-    if (r > 4095) r = 4095;
-    if (g > 4095) g = 4095;
-    if (b > 4095) b = 4095;
-
     int chR = tlcRgbIndexLocal[rgbIndex][0];
     int chG = tlcRgbIndexLocal[rgbIndex][1];
     int chB = tlcRgbIndexLocal[rgbIndex][2];
@@ -191,6 +191,35 @@ void tlcRgbLedFade(int rgbIndex,
     tlcLedFadeInternal(chR, r, timeMs);
     tlcLedFadeInternal(chG, g, timeMs);
     tlcLedFadeInternal(chB, b, timeMs);
+}
+
+// -----------------------------------------------------------------------------
+// HIGH-LEVEL INTERNAL API
+// -----------------------------------------------------------------------------
+
+void tlcLed(int ledIndex, uint16_t value, uint32_t timeMs) {
+    if (ledIndex < 0 || ledIndex >= NUM_LED_LOCAL)
+        return;
+
+    int ch = tlcLedIndexLocal[ledIndex];
+    tlcLedFadeInternal(ch, value, timeMs);
+}
+
+void tlcLedAll(uint16_t value, uint32_t timeMs) {
+    for (int i = 0; i < NUM_LED_LOCAL; i++) {
+        int ch = tlcLedIndexLocal[i];
+        tlcLedFadeInternal(ch, value, timeMs);
+    }
+}
+
+void tlcRgb(int rgbIndex, uint16_t r, uint16_t g, uint16_t b, uint32_t timeMs) {
+    tlcRgbLedFade(rgbIndex, r, g, b, timeMs);
+}
+
+void tlcRgbAll(uint16_t r, uint16_t g, uint16_t b, uint32_t timeMs) {
+    for (int i = 0; i < NUM_RGB_LOCAL; i++) {
+        tlcRgbLedFade(i, r, g, b, timeMs);
+    }
 }
 
 // -----------------------------------------------------------------------------
