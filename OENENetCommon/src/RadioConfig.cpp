@@ -1,5 +1,8 @@
 #include "RadioConfig.h"
 
+// DEFINIZIONE REALE DELLA VARIABILE GLOBALE
+RadioConfig radioConfig;
+
 // Local Preferences instance (not exposed outside this file)
 static Preferences prefs;
 

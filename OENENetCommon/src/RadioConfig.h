@@ -7,6 +7,9 @@ struct RadioConfig {
     int txPower;
 };
 
+// DICHIARAZIONE DELLA VARIABILE GLOBALE
+extern RadioConfig radioConfig;
+
 void loadRadioConfig(RadioConfig &cfg);
 void saveRadioConfig(const RadioConfig &cfg);
 void applyRadioConfig(const RadioConfig &cfg);

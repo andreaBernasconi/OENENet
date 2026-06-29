@@ -21,7 +21,7 @@ Board: OLIMEX ESP32-POE
 
 #include <RadioConfig.h>
 
-RadioConfig radioConfig;
+
 
 #define ESPNOW_MAX_PAYLOAD 250
 #define MAX_ROUTES 10

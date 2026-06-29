@@ -5,10 +5,12 @@
 
 static OscCallback userOscCallback = nullptr;
 
-RadioConfig radioConfig;
+// DEFINIZIONI REALI DELLE VARIABILI GLOBALI DEL CORE
 uint8_t lastSenderMac[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 bool emergencyActive = false;
 
+// NOTA: radioConfig NON va definito qui.
+// È definito in RadioConfig.cpp e dichiarato come extern in RadioConfig.h.
 
 void initCommon() {
     Serial.begin(115200);
@@ -22,7 +24,6 @@ void initCommon() {
     emergencyWindow(STATUS_LED_PIN, 8000);
     applyRadioConfig(radioConfig);
 }
-
 
 bool initEspNow() {
     loadRadioConfig(radioConfig);
@@ -130,6 +131,7 @@ void emergencyWindow(uint8_t ledPin, unsigned long durationMs) {
 void setOscCallback(OscCallback cb) {
     userOscCallback = cb;
 }
+
 void sendOscError(const char* path, const char* code) {
     static uint8_t buffer[ESPNOW_MAX_PAYLOAD];
 
