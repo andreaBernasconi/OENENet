@@ -1,3 +1,5 @@
+//RoutingTable.h
+
 #pragma once
 #include <Arduino.h>
 #include <stdint.h>   // uint8_t
@@ -6,7 +8,6 @@
 struct RouteEntry {
     const char* prefix; // short board name used in OSC addressing
     uint8_t mac[6]; // MAC address of the board
-    bool enabled;    // whether the board is active
     unsigned long lastAlive;  // timestamp of last received /alive
 };
 

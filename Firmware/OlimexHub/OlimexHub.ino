@@ -31,7 +31,7 @@ const unsigned long ALIVE_TIMEOUT_MS = 4000;
 WiFiUDP Udp;
 
 // Ethernet Configuration
-const IPAddress ROUTER_IP(192, 168, 1, 23);
+const IPAddress ROUTER_IP(192, 168, 1, 71);
 const IPAddress ROUTER_GATEWAY(192, 168, 1, 254);
 const IPAddress ROUTER_SUBNET(255, 255, 255, 0);
 const int LOCAL_OSC_PORT = 8888;
@@ -44,7 +44,7 @@ const int LOCAL_OSC_PORT = 8888;
 #define ETH_CLKMODE ETH_CLOCK_GPIO17_OUT
 
 // PC
-IPAddress PcIP(192, 168, 1, 5);
+IPAddress PcIP(192, 168, 1, 5);  // p1
 int PcPort = 8888;
 
 bool onlineStatus[MAX_ROUTES] = { false };
@@ -67,8 +67,6 @@ void sendOscToPc(OSCMessage &msg) {
 // sendStatusToMax
 void sendStatusToMax() {
   for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
-    if (!routingTable[i].enabled) continue;
-
     OSCMessage msg("/alive_ack");
     msg.add(routingTable[i].prefix);
     msg.add(onlineStatus[i] ? 1 : 0);
@@ -132,14 +130,13 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
   static uint8_t outBuffer[ESPNOW_MAX_PAYLOAD];
 
   for (int i = 0; i < routingTableSize; i++) {
-    if (!routingTable[i].enabled) continue;
 
     OSCMessage alive("/alive");
 
     int outLen = buildOscForEspNow(alive, outBuffer, ESPNOW_MAX_PAYLOAD);
     if (outLen == 0) continue;
 
-    ensurePeer(routingTable[i].mac, radioConfig.channel);
+    ensurePeer(routingTable[i].mac);
     sendEspNow(routingTable[i].mac, outBuffer, outLen);
   }
 
@@ -150,7 +147,6 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
 
 bool isKnownMac(const uint8_t *mac) {
   for (int i = 0; i < routingTableSize; i++) {
-    if (!routingTable[i].enabled) continue;
     if (memcmp(mac, routingTable[i].mac, 6) == 0) return true;
   }
   return false;
@@ -171,11 +167,11 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
     return;
   }
 
-if (len < 8) {
-  espnowTruncatedPackets++;
-  LOGLN("ESP-NOW packet too short, discarded");
-  return;
-}
+  if (len < 8) {
+    espnowTruncatedPackets++;
+    LOGLN("ESP-NOW packet too short, discarded");
+    return;
+  }
 
 
   if (!isKnownMac(info->src_addr)) {
@@ -261,7 +257,6 @@ void checkAliveTimeout() {
   lastAliveCheck = now;
 
   for (int i = 0; i < routingTableSize; i++) {
-    if (!routingTable[i].enabled) continue;
 
     bool online = routingTable[i].lastAlive > 0 && (now - routingTable[i].lastAlive) < ALIVE_TIMEOUT_MS;
 
@@ -338,11 +333,10 @@ void setup() {
   esp_now_register_recv_cb(onEspNowRecv);
 
   for (int i = 0; i < routingTableSize; i++) {
-    if (!routingTable[i].enabled) continue;
 
     esp_now_peer_info_t peer = {};
     memcpy(peer.peer_addr, routingTable[i].mac, 6);
-    peer.channel = 0;
+    //peer.channel = 0;
     peer.encrypt = false;
 
     if (esp_now_add_peer(&peer) == ESP_OK) {
@@ -436,7 +430,7 @@ void loop() {
       continue;
     }
 
-    ensurePeer(route->mac, radioConfig.channel);
+    ensurePeer(route->mac);
     sendEspNow(route->mac, outBuffer, outLen);
   }
 }

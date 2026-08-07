@@ -3,7 +3,7 @@
 // Unified logging for all OENENet firmware
 
 #ifndef OENENET_DEBUG
-#define OENENET_DEBUG 0
+#define OENENET_DEBUG 1
 #endif
 
 #if OENENET_DEBUG

@@ -42,7 +42,7 @@ void onDataRecv(const esp_now_recv_info_t *info,
                 int len)
 {
     memcpy(lastSenderMac, info->src_addr, 6);
-    ensurePeer(lastSenderMac, radioConfig.channel);
+    ensurePeer(lastSenderMac);
 
     if (len <= 0 || len > ESPNOW_MAX_PAYLOAD) return;
 
@@ -67,7 +67,7 @@ void handleAlive(OSCMessage &msg) {
     OSCMessage reply("/alive_ack");
     static uint8_t buffer[250];
 
-    ensurePeer(lastSenderMac, radioConfig.channel);
+    ensurePeer(lastSenderMac);
     sendOscToEspNow(lastSenderMac, reply, buffer, ESPNOW_MAX_PAYLOAD);
 }
 
@@ -138,6 +138,6 @@ void sendOscError(const char* path, const char* code) {
     OSCMessage m(path);
     m.add(code);
 
-    ensurePeer(lastSenderMac, radioConfig.channel);
+    ensurePeer(lastSenderMac);
     sendOscToEspNow(lastSenderMac, m, buffer, ESPNOW_MAX_PAYLOAD);
 }

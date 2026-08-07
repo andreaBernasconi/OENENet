@@ -8,13 +8,12 @@
 // ---------------------------------------------------------
 // ensurePeer
 // ---------------------------------------------------------
-bool ensurePeer(const uint8_t mac[6], int channel)
+bool ensurePeer(const uint8_t mac[6])
 {
     if (esp_now_is_peer_exist(mac)) return true;
 
     esp_now_peer_info_t peer{};
-    memcpy(peer.peer_addr, mac, 6);
-    peer.channel = channel;
+    memcpy(peer.peer_addr, mac, 6);    
     peer.encrypt = false;
 
     return esp_now_add_peer(&peer) == ESP_OK;
