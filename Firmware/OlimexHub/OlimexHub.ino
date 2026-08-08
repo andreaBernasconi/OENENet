@@ -18,8 +18,9 @@ Board: OLIMEX ESP32-POE
 #include <OSCMessage.h>
 #include <OSCBundle.h>
 #include "RoutingTable.h"
-
 #include <RadioConfig.h>
+#include <Preferences.h>
+Preferences prefs;
 
 
 
@@ -48,6 +49,7 @@ IPAddress PcIP(192, 168, 1, 5);  // p1
 int PcPort = 8888;
 
 bool onlineStatus[MAX_ROUTES] = { false };
+bool routerReady = false;
 
 // ESP-NOW diagnostics counters
 volatile uint32_t espnowInvalidPackets = 0;
@@ -66,15 +68,28 @@ void sendOscToPc(OSCMessage &msg) {
 
 // sendStatusToMax
 void sendStatusToMax() {
+
+  // If routing table is empty, report an error to MAX
+  if (routingTableSize == 0) {
+    OSCMessage msg("/error");
+    msg.add("routing_empty");
+    sendOscToPc(msg);
+
+    LOGLN("Routing table empty, error sent to MAX");
+    return;
+  }
+
+  // Send alive_ack for each board
   for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
     OSCMessage msg("/alive_ack");
-    msg.add(routingTable[i].prefix);
-    msg.add(onlineStatus[i] ? 1 : 0);
-
+    msg.add(routingTable[i].prefix);          // board name
+    msg.add(onlineStatus[i] ? 1 : 0);         // online/offline
     sendOscToPc(msg);
   }
-  LOGLN("Status sent to MAX");
+
+  LOGLN("Sent status to MAX");
 }
+
 
 // Handle /olimex/radio/channel
 void handleChannel(OSCMessage &msg, int addrOffset) {
@@ -144,6 +159,68 @@ void handleOlimexAlive(OSCMessage &msg, int addrOffset) {
   reply.add("olimex").add(aliveNumber);
   sendOscToPc(reply);
 }
+
+void handleRoutingSet(OSCMessage &msg, int addrOffset) {
+  if (msg.size() < 1) {
+    LOGLN("routing/set: missing N");
+    return;
+  }
+
+  int N = msg.getInt(0);
+
+  if (N < 1 || N > MAX_ROUTES) {
+    LOGLN("routing/set: invalid N");
+    return;
+  }
+
+  if (msg.size() < 1 + N * 7) {
+    LOGLN("routing/set: not enough arguments");
+    return;
+  }
+
+
+  clearRoutingTable();
+
+  routingTableSize = N;
+  int index = 1;
+
+  for (int i = 0; i < N; i++) {
+
+    // PREFIX
+    char prefixBuffer[32];
+    msg.getString(index++, prefixBuffer, 32);
+
+    if (!isValidPrefix(prefixBuffer)) {
+      LOGLN("Invalid prefix, skipping entry");
+      routingTable[i].prefix = strdup("invalid");
+    } else {
+      routingTable[i].prefix = strdup(prefixBuffer);
+    }
+
+    // MAC
+    uint8_t mac[6];
+    for (int b = 0; b < 6; b++) {
+      mac[b] = msg.getInt(index++);
+    }
+
+    memcpy(routingTable[i].mac, mac, 6);
+
+    routingTable[i].lastAlive = 0;
+
+    // PEER ESP-NOW
+    esp_now_del_peer(mac);
+
+    if (isValidMac(mac)) {
+      ensurePeer(mac);
+    } else {
+      LOGLN("Invalid MAC, peer not created");
+    }
+  }
+
+  LOGLN("routing/set: table updated");
+  saveRoutingTableToNVS();
+}
+
 
 bool isKnownMac(const uint8_t *mac) {
   for (int i = 0; i < routingTableSize; i++) {
@@ -286,7 +363,9 @@ void onEthEvent(arduino_event_id_t event) {
     case ARDUINO_EVENT_ETH_CONNECTED:
       LOGLN("Ethernet link up");
       Udp.begin(LOCAL_OSC_PORT);
-      sendStatusToMax();
+      if (routerReady) {
+        sendStatusToMax();
+      }
       break;
 
     case ARDUINO_EVENT_ETH_GOT_IP:
@@ -304,6 +383,8 @@ void setup() {
   delay(200);
 
   loadRadioConfig(radioConfig);
+
+  loadRoutingTableFromNVS();
 
   Network.onEvent(onEthEvent);
 
@@ -333,21 +414,10 @@ void setup() {
   esp_now_register_recv_cb(onEspNowRecv);
 
   for (int i = 0; i < routingTableSize; i++) {
-
-    esp_now_peer_info_t peer = {};
-    memcpy(peer.peer_addr, routingTable[i].mac, 6);
-    //peer.channel = 0;
-    peer.encrypt = false;
-
-    if (esp_now_add_peer(&peer) == ESP_OK) {
-      LOG("Peer added: ");
-      LOGLN(routingTable[i].prefix);
-    } else {
-      LOG("Peer add error: ");
-      LOGLN(routingTable[i].prefix);
-    }
+    ensurePeer(routingTable[i].mac);
   }
 
+  routerReady = true;
   LOGLN("Router ready");
   sendStatusToMax();
 }
@@ -395,6 +465,8 @@ void loop() {
     if (msg.route("/olimex/status/request", handleStatusRequest)) continue;
     if (msg.route("/olimex/alive", handleOlimexAlive)) continue;
     if (msg.route("/olimex/radio/status", handleRadioStatus)) continue;
+    if (msg.route("/olimex/routing/set", handleRoutingSet)) continue;
+
 
     char prefix[32];
     char command[64];
