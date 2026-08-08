@@ -82,8 +82,8 @@ void sendStatusToMax() {
   // Send alive_ack for each board
   for (int i = 0; i < routingTableSize && i < MAX_ROUTES; i++) {
     OSCMessage msg("/alive_ack");
-    msg.add(routingTable[i].prefix);          // board name
-    msg.add(onlineStatus[i] ? 1 : 0);         // online/offline
+    msg.add(routingTable[i].prefix);   // board name
+    msg.add(onlineStatus[i] ? 1 : 0);  // online/offline
     sendOscToPc(msg);
   }
 
@@ -181,6 +181,18 @@ void handleRoutingSet(OSCMessage &msg, int addrOffset) {
 
   clearRoutingTable();
 
+  // Reset online status for all possible routes
+  for (int i = 0; i < MAX_ROUTES; i++) {
+    onlineStatus[i] = false;
+  }
+
+  // Reset lastAlive timestamps
+  for (int i = 0; i < MAX_ROUTES; i++) {
+    routingTable[i].lastAlive = 0;
+  }
+
+
+
   routingTableSize = N;
   int index = 1;
 
@@ -219,6 +231,7 @@ void handleRoutingSet(OSCMessage &msg, int addrOffset) {
 
   LOGLN("routing/set: table updated");
   saveRoutingTableToNVS();
+  sendStatusToMax();
 }
 
 
@@ -296,8 +309,16 @@ void onEspNowRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len)
 void espnowErrorUpdate() {
   uint32_t now = millis();
   if (now - lastDiag < DIAG_INTERVAL) return;
-
   lastDiag = now;
+
+  // If no routing table is defined, ignore ESP-NOW errors
+  if (routingTableSize == 0) {
+    espnowInvalidPackets = 0;
+    espnowTruncatedPackets = 0;
+    espnowUnknownMac = 0;
+    return;
+  }
+
 
   if (espnowInvalidPackets == 0 && espnowTruncatedPackets == 0 && espnowUnknownMac == 0) return;
 
@@ -330,7 +351,7 @@ void checkAliveTimeout() {
   static unsigned long lastAliveCheck = 0;
   unsigned long now = millis();
 
-  if (now - lastAliveCheck < 1000) return;
+  if (now - lastAliveCheck < 2000) return;
   lastAliveCheck = now;
 
   for (int i = 0; i < routingTableSize; i++) {

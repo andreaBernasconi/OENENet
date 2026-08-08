@@ -104,9 +104,12 @@ bool isValidMac(const uint8_t mac[6]) {
 }
 
 void saveRoutingTableToNVS() {
-    prefs.begin("routing", false);  // open NVS namespace
+    prefs.begin("routing", false);  // open NVS namespace for writing
 
-    // Save table size
+    // Clear old keys to avoid stale prefixes/MACs
+    prefs.clear();
+
+    // Save new table size
     prefs.putInt("size", routingTableSize);
 
     // Save each entry
@@ -123,6 +126,7 @@ void saveRoutingTableToNVS() {
 
     prefs.end();
 }
+
 
 void loadRoutingTableFromNVS() {
     prefs.begin("routing", true);  // read-only
