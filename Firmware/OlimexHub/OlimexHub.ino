@@ -32,8 +32,8 @@ const unsigned long ALIVE_TIMEOUT_MS = 4000;
 WiFiUDP Udp;
 
 // Ethernet Configuration
-const IPAddress ROUTER_IP(192, 168, 1, 71);
-const IPAddress ROUTER_GATEWAY(192, 168, 1, 254);
+const IPAddress ROUTER_IP(192, 168, 100, 71);
+const IPAddress ROUTER_GATEWAY(192, 168, 100, 254);
 const IPAddress ROUTER_SUBNET(255, 255, 255, 0);
 const int LOCAL_OSC_PORT = 8888;
 
@@ -45,7 +45,7 @@ const int LOCAL_OSC_PORT = 8888;
 #define ETH_CLKMODE ETH_CLOCK_GPIO17_OUT
 
 // PC
-IPAddress PcIP(192, 168, 1, 5);  // p1
+IPAddress PcIP(192, 168, 100, 53);  // 
 int PcPort = 8888;
 
 bool onlineStatus[MAX_ROUTES] = { false };

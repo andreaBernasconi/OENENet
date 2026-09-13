@@ -28,11 +28,11 @@ Upload Speed: 921600
 // TLC USER CONFIGURATION
 // -----------------------------------------------------------------------------
 
-#define TLC_NUM_RGB 4
+#define TLC_NUM_RGB 8
 #define TLC_NUM_LED 0
 
-#define TLC_CLK 12
-#define TLC_MOSI 11
+#define TLC_CLK 12  //CIN
+#define TLC_MOSI 11 //DIN
 
 // -----------------------------------------------------------------------------
 // SETUP
